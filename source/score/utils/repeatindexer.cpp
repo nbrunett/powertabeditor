@@ -179,6 +179,30 @@ unsigned int RepeatIndexer::findNextRepeatOrAlternateEnding(const Score &score, 
     return searchResult;
 }
 
+bool RepeatIndexer::alternateEndingBeforeFollowingBarline(const Score &score, const int systemIndex, const Barline &bar)
+{
+    const bool alternateEnding = false;
+    const Barline *nextBar = score.getSystems()[systemIndex].getNextBarline(bar.getPosition());
+    if (nextBar)
+    {
+        if (ScoreUtils::findInRange(
+            score.getSystems()[systemIndex].getAlternateEndings(),
+            bar.getPosition(), nextBar->getPosition() - 1))
+            alternateEnding = true;
+    }
+    else if ((!nextBar) && (systemIndex + 1 < score.getSystems().size()))
+    {
+        const Barline *barInNextSystem = score.getSystems()[systemIndex + 1].getBarlines()[0];
+        nextBar = score.getSystems()[systemIndex + 1].getBarlines()[1];
+        if (ScoreUtils::findInRange(
+            score.getSystems()[systemIndex + 1].getAlternateEndings(),
+            barInNextSystem.getPosition(), nextBar->getPosition() - 1))
+            alternateEnding = true;
+    }
+
+    return alternateEnding;
+}
+
 RepeatIndexer::RepeatIndexer(const Score &score)
 {
     // There may be nested repeats, so maintain a stack of the active repeats

@@ -69,6 +69,7 @@ public:
     int getCurrentRepeatNumber() const { return myActiveRepeat; }
     SystemLocation performRepeat(const SystemLocation &loc);
     unsigned int findNextRepeatOrAlternateEnding(const Score &score, const int systemIndex, const int barIndex);
+    bool alternateEndingBeforeFollowingBarline(const Score &score, const int systemIndex, const Barline &bar);
 
 private:
     SystemLocation myStartBarLocation;
