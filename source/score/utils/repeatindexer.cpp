@@ -212,63 +212,17 @@ RepeatIndexer::RepeatIndexer(const Score &score)
     // The start of the score can always act as a repeat start bar.
     repeats.push(SystemLocation(0, 0));
 
-    unsigned int systemIndex = 0;
-    for (const System &system : score.getSystems())
+    size_t systemIndex = 0;
+    while (systemIndex < score.getSystems().size())
     {
-        for (const Barline &bar : system.getBarlines())
+        size_t barIndex = 0;
+        while (barIndex < score.getSystems()[systemIndex].getBarlines().size())
         {
-            // Process repeat endings in this bar, unless we're at the last bar
-            // of the system.
-            const Barline *nextBar = system.getNextBarline(bar.getPosition());
-            if (nextBar)
-            {
-                for (const AlternateEnding &ending : ScoreUtils::findInRange(
-                         system.getAlternateEndings(), bar.getPosition(),
-                         nextBar->getPosition() - 1))
-                {
-                    // TODO - report unexpected alternate endings.
-                    if (!repeats.empty())
-                    {
-                        repeats.top().addAlternateEnding(system, systemIndex,
-                                                         ending);
-                    }
-                }
-            }
-
-            // If we've seen the last alternate ending of the repeat,
-            // we are done.
-            if (!repeats.empty())
-            {
-                // TODO - currently, this allows a greater number of alternate
-                // endings than the total repeat count so that repeats aren't
-                // silently dropped. This should be reported
-                // by a score checker-type feature when that is implemented.
-                RepeatedSection &activeRepeat = repeats.top();
-                if (activeRepeat.getAlternateEndingCount() &&
-                    !activeRepeat.getRepeatEndBars().empty() &&
-                    activeRepeat.getAlternateEndingCount() >=
-                        activeRepeat.getTotalRepeatCount())
-                {
-                    // If no following repeat endings then we're done with this
-                    // repeat.
-                    if (!this->nextRepeatIsEnd(score, systemIndex, bar))
-                    {
-                        if (bar.getBarType() == Barline::RepeatEnd)
-                        {
-                            activeRepeat.addRepeatEndBar(
-                                SystemLocation(systemIndex, bar.getPosition()),
-                                bar.getRepeatCount());
-                        }
-                        myRepeats.insert(activeRepeat);
-                        repeats.pop();
-                    }
-                }
-            }
-
+            const Barline *bar = score.getSystems()[systemIndex].getBarlines()[barIndex];
             // Record any start bars that we see.
             if (bar.getBarType() == Barline::RepeatStart)
             {
-                const SystemLocation location(systemIndex, bar.getPosition());
+                const SystemLocation location(i, bar.getPosition());
                 repeats.push(RepeatedSection(location));
             }
             // TODO - report unexpected repeat end bars.
@@ -277,7 +231,7 @@ RepeatIndexer::RepeatIndexer(const Score &score)
                 // Add this end bar to the active section.
                 RepeatedSection &activeRepeat = repeats.top();
                 activeRepeat.addRepeatEndBar(
-                    SystemLocation(systemIndex, bar.getPosition()),
+                    SystemLocation(i, bar.getPosition()),
                     bar.getRepeatCount());
 
                 // If we don't have any alternate endings, we must be
@@ -288,11 +242,101 @@ RepeatIndexer::RepeatIndexer(const Score &score)
                     repeats.pop();
                 }
             }
+
+            const Barline *nextBar = score.getSystems()[systemIndex].getNextBarline(bar.getPosition());
+            if (nextBar)
+            {
+                bool endingOne = false;
+                bool multipleAlternateEndings = false;
+                for (const AlternateEnding &ending : ScoreUtils::findInRange(
+                         score.getSystems()[systemIndex].getAlternateEndings(),
+                         bar.getPosition(), nextBar->getPosition() - 1))
+                {
+                    // TODO - report unexpected alternate endings.
+                    if (!repeats.empty())
+                    {
+                        repeats.top().addAlternateEnding(score.getSystems()[systemIndex], i,
+                                                         ending);
+                        for (size_t k = 0; k < ending.getNumbers().size(); k++)
+                        {
+                            if (ending.getNumbers()[k] == 1)
+                                endingOne = true;
+                        }
+                        if (ending.getNumbers().size() > 1)
+                            multipleAlternateEndings = true;
+                    }
+                }
+
+                if (endingOne)
+                    // Must be followed by a repeat end, so we will get it
+                    // in a following iteration.
+                    //
+                    // Could do a search forward and produce a validation
+                    // message if the next repeat isn't an end.
+                    barIndex++;
+                    continue;
+                else if (multipleAlternateEndings)
+                {
+                    // Must be followed by a repeat end, but how we handle the
+                    // active repeat depends on the measure following that
+                    // repeat end.
+                    //
+                    // Could add validation message(s) here if nextRepeatStatus
+                    // is 0 (no more repeats) or 1 (repeat start).
+                    const unsigned int nextRepeatStatus = findNextRepeatOrAlternateEnding(score, systemIndex, barIndex);
+                    if (nextRepeatStatus == 2)
+                    {
+                        // Add this repeat end bar to the active section.
+                        const Barline *nextRepeatBar = score.getSystems()[systemIndex].getBarlines()[barIndex];
+                        RepeatedSection &activeRepeat = repeats.top();
+                        activeRepeat.addRepeatEndBar(
+                            SystemLocation(systemIndex, nextRepeatBar.getPosition()),
+                            nextRepeatBar.getRepeatCount());
+
+                        // No alternate ending following the next repeat end
+                        // means the active repeat is done and the next repeat
+                        // is part of an outer repeat.
+                        if (!alternateEndingBeforeFollowingBarline(score, systemIndex, nextRepeatBar))
+                        {
+                            myRepeats.insert(activeRepeat);
+                            repeats.pop();
+                        }
+                    }
+                }
+                else
+                {
+                    const unsigned int nextRepeat = findNextRepeatOrAlternateEnding(score, systemIndex, barIndex);
+                    if (nextRepeat != 2)
+                    {
+                        // Encountering repeat start, alternate ending, or end
+                        // of score means active repeat is done, but we to
+                        // handle whichever we found so skip iterating barIndex.
+                        RepeatedSection &activeRepeat = repeats.top();
+                        myRepeats.insert(activeRepeat);
+                        repeats.pop();
+                        continue;
+                    }
+                    else
+                    {
+                        // No alternate ending following the next repeat end
+                        // means the active repeat is done and the next repeat
+                        // is part of an outer repeat.
+                        if (!alternateEndingBeforeFollowingBarline(score, systemIndex, nextRepeatBar))
+                        {
+                            myRepeats.insert(activeRepeat);
+                            repeats.pop();
+                        }
+                        // Active repeat is not done and we need to handle the
+                        // bar we are currently on, so skip iterating barIndex.
+                        else
+                            continue;
+                    }
+                }
+            }
+            barIndex++;
         }
-
-        ++systemIndex;
+        systemIndex++;
     }
-
     // TODO - report mismatched repeat start bars.
     // TODO - report missing / extra alternate endings.
 }
