@@ -128,6 +128,57 @@ SystemLocation RepeatedSection::performRepeat(const SystemLocation &loc)
     }
 }
 
+unsigned int RepeatIndexer::findNextRepeatOrAlternateEnding(const Score &score, const int systemIndex, const int barIndex)
+{
+    const Barline *nextBar = score.getSystems()[systemIndex].getNextBarline(bar.getPosition());
+    if (nextBar)
+    {
+        barIndex++;
+    }
+    else if ((!nextBar) && (systemIndex + 1 < score.getSystems().size()))
+    {
+        systemIndex++;
+        barIndex = 0;
+    }
+    else
+    {
+        systemIndex = score.getSystems().size();
+        barIndex = score.getSystems()[systemIndex - 1].getBarlines().size();
+    }
+
+    unsigned int searchResult = 0;
+    while (systemIndex < score.getSystems().size())
+    {
+        while (barIndex < score.getSystems()[systemIndex].getBarlines().size())
+        {
+            const Barline *bar = score.getSystems()[systemIndex].getBarlines()[barIndex];
+            if (bar.getBarType()== Barline::RepeatStart)
+            {
+                searchResult = 1;
+                break;
+            }
+            else if (bar.getBarType() == Barline::RepeatEnd)
+            {
+                searchResult = 2;
+                break;
+            }
+
+            if (alternateEndingBeforeFollowingBarline(score, systemIndex, bar))
+            {
+                searchResult = 3;
+                break;
+            }
+            barIndex++;
+        }
+
+        if (searchResult)
+            break;
+        systemIndex++;
+    }
+
+    return searchResult;
+}
+
 RepeatIndexer::RepeatIndexer(const Score &score)
 {
     // There may be nested repeats, so maintain a stack of the active repeats
