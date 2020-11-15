@@ -224,6 +224,8 @@ RepeatIndexer::RepeatIndexer(const Score &score)
             {
                 const SystemLocation location(i, bar.getPosition());
                 repeats.push(RepeatedSection(location));
+                barIndex++;
+                continue;
             }
             // TODO - report unexpected repeat end bars.
             else if (bar.getBarType() == Barline::RepeatEnd && !repeats.empty())
@@ -240,6 +242,8 @@ RepeatIndexer::RepeatIndexer(const Score &score)
                 {
                     myRepeats.insert(activeRepeat);
                     repeats.pop();
+                    barIndex++;
+                    continue;
                 }
             }
 
@@ -268,6 +272,7 @@ RepeatIndexer::RepeatIndexer(const Score &score)
                 }
 
                 if (endingOne)
+                {
                     // Must be followed by a repeat end, so we will get it
                     // in a following iteration.
                     //
@@ -275,6 +280,7 @@ RepeatIndexer::RepeatIndexer(const Score &score)
                     // message if the next repeat isn't an end.
                     barIndex++;
                     continue;
+                }
                 else if (multipleAlternateEndings)
                 {
                     // Must be followed by a repeat end, but how we handle the
@@ -309,7 +315,7 @@ RepeatIndexer::RepeatIndexer(const Score &score)
                     if (nextRepeat != 2)
                     {
                         // Encountering repeat start, alternate ending, or end
-                        // of score means active repeat is done, but we to
+                        // of score means active repeat is done, but we need to
                         // handle whichever we found so skip iterating barIndex.
                         RepeatedSection &activeRepeat = repeats.top();
                         myRepeats.insert(activeRepeat);
@@ -321,10 +327,32 @@ RepeatIndexer::RepeatIndexer(const Score &score)
                         // No alternate ending following the next repeat end
                         // means the active repeat is done and the next repeat
                         // is part of an outer repeat.
+                        const Barline *nextRepeatBar = score.getSystems()[systemIndex].getBarlines()[barIndex];
                         if (!alternateEndingBeforeFollowingBarline(score, systemIndex, nextRepeatBar))
                         {
-                            myRepeats.insert(activeRepeat);
-                            repeats.pop();
+                            // No alternate ending following the next repeat end
+                            // and highest alternate ending means the active
+                            // repeat is done and the next repeat is part of an
+                            // outer repeat.
+                            RepeatedSection &activeRepeat = repeats.top();
+                            if (ending.getNumbers()[0] == activeRepeat.getAlternateEndingCount())
+                            {
+                                myRepeats.insert(activeRepeat);
+                                repeats.pop();
+                                continue;
+                            }
+                            // Have a case like endings 1&3 in one bar then 2
+                            // in the next and this following repeat end is the
+                            // end of the active repeat.
+                            else
+                            {
+                                RepeatedSection &activeRepeat = repeats.top();
+                                activeRepeat.addRepeatEndBar(
+                                    SystemLocation(systemIndex, nextRepeatBar.getPosition()),
+                                    nextRepeatBar.getRepeatCount());
+                                myRepeats.insert(activeRepeat);
+                                repeats.pop();
+                            }
                         }
                         // Active repeat is not done and we need to handle the
                         // bar we are currently on, so skip iterating barIndex.
